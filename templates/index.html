@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>考试模拟系统</title>
-    <link rel="stylesheet" href="/static/styles.css?v=1.2" />
+    <link rel="stylesheet" href="/static/styles.css?v=1.3.1" />
   </head>
   <body>
     <div class="container">
@@ -118,22 +118,38 @@
             </div>
           </section>
 
-          <div class="notice hidden" id="notice"></div>
+          <div class="notice hidden" id="notice" role="status" aria-live="polite"></div>
 
           <section class="exam-layout hidden" id="examLayout">
             <form class="question-list" id="questionForm"></form>
             <aside class="question-nav-panel" aria-label="题目导航">
               <div class="nav-title">
                 <h2>题目导航</h2>
-                <p>点击序号切换题目</p>
+                <p id="navSummary">点击序号切换题目</p>
+              </div>
+              <div class="nav-filters" id="navFilters" role="group" aria-label="筛选题目状态">
+                <button class="nav-filter active" data-nav-filter="all" type="button"><span>全部</span><small>0</small></button>
+                <button class="nav-filter" data-nav-filter="unanswered" type="button"><span>未答</span><small>0</small></button>
+                <button class="nav-filter" data-nav-filter="correct" type="button"><span>正确</span><small>0</small></button>
+                <button class="nav-filter" data-nav-filter="wrong" type="button"><span>错误</span><small>0</small></button>
+                <button class="nav-filter" data-nav-filter="marked" type="button"><span>标记</span><small>0</small></button>
+              </div>
+              <div class="nav-pagination">
+                <button class="nav-page-button" id="navPrevPage" type="button" title="上一组" aria-label="上一组">‹</button>
+                <strong id="navPageInfo" aria-live="polite">1 / 1</strong>
+                <button class="nav-page-button" id="navNextPage" type="button" title="下一组" aria-label="下一组">›</button>
               </div>
               <div class="question-nav" id="questionNav"></div>
+              <form class="nav-jump" id="navJumpForm" novalidate>
+                <input id="navJumpInput" type="number" min="1" step="1" inputmode="numeric" placeholder="题号" aria-label="输入题号" />
+                <button type="submit">跳转</button>
+              </form>
             </aside>
           </section>
         </section>
       </main>
     </div>
 
-    <script src="/static/app.js?v=1.2"></script>
+    <script src="/static/app.js?v=1.3.1"></script>
   </body>
 </html>

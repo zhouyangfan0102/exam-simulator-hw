@@ -6,10 +6,15 @@ const state = {
   mode: "random",
   examId: null,
   questions: [],
+  answers: new Map(),
   submitted: false,
   checked: new Map(),
+  checkRequests: new Map(),
   marked: new Set(),
   currentIndex: 0,
+  navFilter: "all",
+  navPage: 0,
+  navPageSize: 50,
   startedAt: null,
   elapsedSeconds: 0,
   timerId: null,
@@ -55,6 +60,14 @@ const els = {
   examLayout: document.querySelector("#examLayout"),
   questionForm: document.querySelector("#questionForm"),
   questionNav: document.querySelector("#questionNav"),
+  navSummary: document.querySelector("#navSummary"),
+  navFilters: document.querySelector("#navFilters"),
+  navFilterButtons: [...document.querySelectorAll("[data-nav-filter]")],
+  navPrevPage: document.querySelector("#navPrevPage"),
+  navNextPage: document.querySelector("#navNextPage"),
+  navPageInfo: document.querySelector("#navPageInfo"),
+  navJumpForm: document.querySelector("#navJumpForm"),
+  navJumpInput: document.querySelector("#navJumpInput"),
 };
 
 let scrollSyncId = 0;
@@ -327,7 +340,7 @@ function startExamTimer() {
 }
 
 function answeredQuestionCount() {
-  return [...els.questionForm.querySelectorAll(".answer-value")].filter((input) => input.value).length;
+  return [...state.answers.values()].filter(Boolean).length;
 }
 
 function updateExamStatus() {
@@ -566,10 +579,14 @@ function clearCurrentExam() {
   stopExamTimer();
   state.examId = null;
   state.questions = [];
+  state.answers = new Map();
   state.submitted = false;
   state.checked = new Map();
+  state.checkRequests = new Map();
   state.marked = new Set();
   state.currentIndex = 0;
+  state.navFilter = "all";
+  state.navPage = 0;
   state.elapsedSeconds = 0;
   els.questionForm.innerHTML = "";
   els.questionNav.innerHTML = "";
@@ -675,10 +692,14 @@ async function startExam() {
     }
     state.examId = data.examId;
     state.questions = data.questions || [];
+    state.answers = new Map();
     state.submitted = false;
     state.checked = new Map();
+    state.checkRequests = new Map();
     state.marked = new Set();
     state.currentIndex = 0;
+    state.navFilter = "all";
+    state.navPage = 0;
     startExamTimer();
     renderExam();
     showNotice("");
@@ -699,45 +720,88 @@ function renderExam() {
   els.scoreCard.classList.add("hidden");
   els.startBtn.disabled = true;
   els.questionForm.innerHTML = "";
-
-  state.questions.forEach((question, index) => {
-    const prepared = prepareQuestion(question);
-    const card = document.createElement("article");
-    card.className = "question-card";
-    card.dataset.id = question.id;
-    card.dataset.index = String(index);
-    card.dataset.answerMode = prepared.mode;
-    card.innerHTML = `
-      <div class="question-head">
-        <div class="question-meta">
-          <span class="index-badge">${index + 1}</span>
-          <span class="type-badge">${escapeHtml(question.type || "未分类")}</span>
-          <span class="subject-badge" title="${escapeHtml(question.subject)}">${escapeHtml(question.subject)}</span>
-        </div>
-        <span class="result-badge hidden"></span>
-      </div>
-      <p class="question-text">${escapeHtml(prepared.stem)}</p>
-      <input class="answer-value" name="${escapeHtml(question.id)}" type="hidden" />
-      ${renderChoiceButtons(prepared)}
-      <div class="answer-review hidden"></div>
-      <div class="question-actions">
-        <button class="mark-button" data-action="mark" type="button">标记题目</button>
-        <button class="submit-answer-button" data-action="check" type="button">提交答案</button>
-        <button class="finish-button" data-action="finish" type="button">交卷</button>
-      </div>
-    `;
-    els.questionForm.appendChild(card);
-  });
-
-  renderQuestionNav();
   showQuestion(0);
   updateExamStatus();
   requestPageScrollSync();
 }
 
+const navFilterLabels = {
+  all: "全部",
+  unanswered: "未答",
+  correct: "正确",
+  wrong: "错误",
+  marked: "标记",
+};
+
+function questionMatchesNavFilter(question, filter) {
+  const answer = state.answers.get(question.id) || "";
+  const result = state.checked.get(question.id);
+  if (filter === "unanswered") {
+    return !answer;
+  }
+  if (filter === "correct") {
+    return Boolean(result?.correct);
+  }
+  if (filter === "wrong") {
+    return Boolean(result && !result.correct);
+  }
+  if (filter === "marked") {
+    return state.marked.has(question.id);
+  }
+  return true;
+}
+
+function filteredQuestionIndices() {
+  const indices = [];
+  state.questions.forEach((question, index) => {
+    if (questionMatchesNavFilter(question, state.navFilter)) {
+      indices.push(index);
+    }
+  });
+  return indices;
+}
+
+function updateNavFilterCounts() {
+  const counts = {
+    all: state.questions.length,
+    unanswered: 0,
+    correct: 0,
+    wrong: 0,
+    marked: state.marked.size,
+  };
+  state.questions.forEach((question) => {
+    if (!(state.answers.get(question.id) || "")) {
+      counts.unanswered += 1;
+    }
+    const result = state.checked.get(question.id);
+    if (result?.correct) {
+      counts.correct += 1;
+    } else if (result) {
+      counts.wrong += 1;
+    }
+  });
+  els.navFilterButtons.forEach((button) => {
+    const filter = button.dataset.navFilter;
+    button.classList.toggle("active", filter === state.navFilter);
+    button.setAttribute("aria-pressed", String(filter === state.navFilter));
+    const count = button.querySelector("small");
+    if (count) {
+      count.textContent = String(counts[filter] || 0);
+    }
+  });
+}
+
 function renderQuestionNav() {
   els.questionNav.innerHTML = "";
-  state.questions.forEach((question, index) => {
+  updateNavFilterCounts();
+  const indices = filteredQuestionIndices();
+  const pageCount = Math.ceil(indices.length / state.navPageSize);
+  state.navPage = Math.max(0, Math.min(state.navPage, Math.max(0, pageCount - 1)));
+  const pageStart = state.navPage * state.navPageSize;
+  const pageIndices = indices.slice(pageStart, pageStart + state.navPageSize);
+
+  pageIndices.forEach((index) => {
+    const question = state.questions[index];
     const button = document.createElement("button");
     button.className = "nav-item";
     button.type = "button";
@@ -747,41 +811,123 @@ function renderQuestionNav() {
     button.dataset.digits = String(number.length);
     button.textContent = number;
     button.title = `${index + 1}. ${question.subject} ${question.type}`;
+    const result = state.checked.get(question.id);
+    button.classList.toggle("current", index === state.currentIndex);
+    button.classList.toggle("marked", state.marked.has(question.id));
+    button.classList.toggle("correct", Boolean(result?.correct));
+    button.classList.toggle("wrong", Boolean(result && !result.correct));
     els.questionNav.appendChild(button);
   });
-  updateQuestionNav();
+
+  if (!pageIndices.length) {
+    const empty = document.createElement("p");
+    empty.className = "nav-empty";
+    empty.textContent = "此状态暂无题目";
+    els.questionNav.appendChild(empty);
+  }
+
+  const firstNumber = pageIndices.length ? pageIndices[0] + 1 : 0;
+  const lastNumber = pageIndices.length ? pageIndices[pageIndices.length - 1] + 1 : 0;
+  const label = navFilterLabels[state.navFilter] || "全部";
+  els.navSummary.textContent = state.navFilter === "all" && pageIndices.length
+    ? `${firstNumber}-${lastNumber} / ${indices.length}`
+    : `${label} ${indices.length}${pageIndices.length ? ` / 本组 ${pageIndices.length}` : ""}`;
+  els.navPageInfo.textContent = pageCount ? `${state.navPage + 1} / ${pageCount}` : "0 / 0";
+  els.navPrevPage.disabled = state.navPage <= 0;
+  els.navNextPage.disabled = !pageCount || state.navPage >= pageCount - 1;
+  els.navJumpInput.max = String(state.questions.length || 1);
 }
 
 function updateQuestionNav() {
-  document.querySelectorAll(".nav-item").forEach((button) => {
-    const index = Number(button.dataset.index);
-    const questionId = button.dataset.id;
-    const result = state.checked.get(questionId);
-    button.classList.toggle("current", index === state.currentIndex);
-    button.classList.toggle("marked", state.marked.has(questionId));
-    button.classList.toggle("correct", Boolean(result?.correct));
-    button.classList.toggle("wrong", Boolean(result && !result.correct));
-  });
+  renderQuestionNav();
 }
 
-function showQuestion(index) {
+function renderCurrentQuestion() {
+  const question = state.questions[state.currentIndex];
+  els.questionForm.innerHTML = "";
+  if (!question) {
+    return;
+  }
+  const prepared = prepareQuestion(question);
+  const card = document.createElement("article");
+  card.className = "question-card";
+  card.dataset.id = question.id;
+  card.dataset.index = String(state.currentIndex);
+  card.dataset.answerMode = prepared.mode;
+  card.innerHTML = `
+    <div class="question-head">
+      <div class="question-meta">
+        <span class="index-badge">${state.currentIndex + 1}</span>
+        <span class="type-badge">${escapeHtml(question.type || "未分类")}</span>
+        <span class="subject-badge" title="${escapeHtml(question.subject)}">${escapeHtml(question.subject)}</span>
+      </div>
+      <span class="result-badge hidden"></span>
+    </div>
+    <p class="question-text">${escapeHtml(prepared.stem)}</p>
+    <input class="answer-value" type="hidden" />
+    ${renderChoiceButtons(prepared)}
+    <div class="answer-review hidden"></div>
+    <div class="question-actions">
+      <button class="mark-button" data-action="mark" type="button">标记题目</button>
+      <button class="submit-answer-button" data-action="check" type="button">提交答案</button>
+      <button class="finish-button" data-action="finish" type="button">交卷</button>
+    </div>
+  `;
+  els.questionForm.appendChild(card);
+
+  const answer = state.answers.get(question.id) || "";
+  card.querySelector(".answer-value").value = answer;
+  const selectedKeys = new Set(answerKeys(answer, prepared.mode));
+  card.querySelectorAll(".choice-button").forEach((button) => {
+    const selected = selectedKeys.has(button.dataset.value);
+    button.classList.toggle("selected", selected);
+    button.setAttribute("aria-pressed", String(selected));
+  });
+
+  const marked = state.marked.has(question.id);
+  const markButton = card.querySelector('[data-action="mark"]');
+  markButton.textContent = marked ? "取消标记" : "标记题目";
+  markButton.classList.toggle("active", marked);
+
+  const result = state.checked.get(question.id);
+  if (result) {
+    applyQuestionFeedback(card, result, { lock: state.submitted });
+  }
+  if (state.submitted) {
+    card.querySelectorAll("[data-action]").forEach((button) => {
+      button.disabled = true;
+    });
+  }
+}
+
+function showQuestion(index, { preserveScroll = true, revealInNav = true } = {}) {
   if (index < 0 || index >= state.questions.length) {
     return;
   }
   const scrollLeft = window.scrollX;
   const scrollTop = window.scrollY;
   state.currentIndex = index;
-  document.querySelectorAll(".question-card").forEach((card) => {
-    card.classList.toggle("hidden", Number(card.dataset.index) !== index);
-  });
-  updateQuestionNav();
-  requestAnimationFrame(() => {
-    window.scrollTo(scrollLeft, scrollTop);
-  });
+  let indices = filteredQuestionIndices();
+  let position = indices.indexOf(index);
+  if (revealInNav && position < 0) {
+    state.navFilter = "all";
+    indices = filteredQuestionIndices();
+    position = index;
+  }
+  if (position >= 0) {
+    state.navPage = Math.floor(position / state.navPageSize);
+  }
+  renderCurrentQuestion();
+  renderQuestionNav();
+  if (preserveScroll) {
+    requestAnimationFrame(() => {
+      window.scrollTo(scrollLeft, scrollTop);
+    });
+  }
 }
 
 function currentCard() {
-  return document.querySelector(`.question-card[data-index="${state.currentIndex}"]`);
+  return els.questionForm.querySelector(".question-card");
 }
 
 function compactAnswer(value) {
@@ -814,6 +960,7 @@ function answerKeys(value, mode) {
 function clearQuestionFeedback(card) {
   card.classList.remove("correct", "wrong", "checking");
   state.checked.delete(card.dataset.id);
+  state.checkRequests.delete(card.dataset.id);
   const badge = card.querySelector(".result-badge");
   badge.textContent = "";
   badge.classList.remove("correct", "wrong");
@@ -875,36 +1022,52 @@ async function checkQuestion(card = currentCard()) {
   if (!card || state.submitted) {
     return;
   }
-  const input = card.querySelector(".answer-value");
-  const answer = input.value;
+  const questionId = card.dataset.id;
+  const answer = state.answers.get(questionId) || "";
   if (!answer) {
     showNotice("请先选择答案，再提交本题。");
     return;
   }
 
-  const sequence = Number(card.dataset.checkSequence || "0") + 1;
-  card.dataset.checkSequence = String(sequence);
+  const sequence = (state.checkRequests.get(questionId) || 0) + 1;
+  state.checkRequests.set(questionId, sequence);
+  const examId = state.examId;
   card.classList.add("checking");
 
   try {
-    const result = await api(`/api/exams/${state.examId}/check`, {
+    const result = await api(`/api/exams/${examId}/check`, {
       method: "POST",
       body: JSON.stringify({
-        questionId: card.dataset.id,
+        questionId,
         answer,
       }),
     });
-    if (card.dataset.checkSequence !== String(sequence) || state.submitted) {
+    if (
+      state.examId !== examId
+      || state.checkRequests.get(questionId) !== sequence
+      || state.answers.get(questionId) !== answer
+      || state.submitted
+    ) {
       return;
     }
-    state.checked.set(card.dataset.id, result);
-    applyQuestionFeedback(card, result);
+    state.checked.set(questionId, result);
+    const visibleCard = currentCard();
+    if (visibleCard?.dataset.id === questionId) {
+      applyQuestionFeedback(visibleCard, result);
+    }
     updateLiveScore();
     updateQuestionNav();
     showNotice("");
   } catch (error) {
-    card.classList.remove("checking");
+    const visibleCard = currentCard();
+    if (visibleCard?.dataset.id === questionId) {
+      visibleCard.classList.remove("checking");
+    }
     showNotice(error.message, "error");
+  } finally {
+    if (state.checkRequests.get(questionId) === sequence) {
+      state.checkRequests.delete(questionId);
+    }
   }
 }
 
@@ -912,11 +1075,7 @@ async function submitExam() {
   if (!state.examId || state.submitted) {
     return;
   }
-  const formData = new FormData(els.questionForm);
-  const answers = {};
-  state.questions.forEach((question) => {
-    answers[question.id] = formData.get(question.id) || "";
-  });
+  const answers = Object.fromEntries(state.answers);
 
   try {
     const result = await api(`/api/exams/${state.examId}/submit`, {
@@ -937,18 +1096,7 @@ function renderResults(result) {
   els.scoreCard.classList.remove("hidden");
   els.scoreValue.textContent = `${result.score}`;
   els.scoreText.textContent = `答对 ${result.correct} / ${result.total}`;
-
-  [...document.querySelectorAll(".question-card")].forEach((card) => {
-    const item = resultMap.get(card.dataset.id);
-    if (item) {
-      applyQuestionFeedback(card, item, { lock: true });
-    }
-    card.querySelectorAll("[data-action]").forEach((button) => {
-      button.disabled = true;
-    });
-  });
   updateExamStatus();
-  updateQuestionNav();
   showQuestion(state.currentIndex);
 }
 
@@ -1024,6 +1172,11 @@ els.questionForm.addEventListener("click", (event) => {
   }
 
   if (input.value !== previousValue) {
+    if (input.value) {
+      state.answers.set(card.dataset.id, input.value);
+    } else {
+      state.answers.delete(card.dataset.id);
+    }
     clearQuestionFeedback(card);
   }
 });
@@ -1034,6 +1187,54 @@ els.questionNav.addEventListener("click", (event) => {
     return;
   }
   showQuestion(Number(button.dataset.index));
+});
+
+els.navFilters.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-nav-filter]");
+  if (!button) {
+    return;
+  }
+  state.navFilter = button.dataset.navFilter;
+  const indices = filteredQuestionIndices();
+  const currentPosition = indices.indexOf(state.currentIndex);
+  if (indices.length && currentPosition < 0) {
+    showQuestion(indices[0], { revealInNav: false });
+    return;
+  }
+  state.navPage = currentPosition >= 0 ? Math.floor(currentPosition / state.navPageSize) : 0;
+  renderQuestionNav();
+});
+
+els.navPrevPage.addEventListener("click", () => {
+  if (state.navPage <= 0) {
+    return;
+  }
+  const indices = filteredQuestionIndices();
+  const target = indices[(state.navPage - 1) * state.navPageSize];
+  if (target !== undefined) {
+    showQuestion(target, { revealInNav: false });
+  }
+});
+
+els.navNextPage.addEventListener("click", () => {
+  const indices = filteredQuestionIndices();
+  const target = indices[(state.navPage + 1) * state.navPageSize];
+  if (target !== undefined) {
+    showQuestion(target, { revealInNav: false });
+  }
+});
+
+els.navJumpForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  const number = Number(els.navJumpInput.value);
+  if (!Number.isInteger(number) || number < 1 || number > state.questions.length) {
+    showNotice(`请输入 1-${state.questions.length} 之间的题号。`);
+    els.navJumpInput.focus();
+    return;
+  }
+  showNotice("");
+  showQuestion(number - 1);
+  els.navJumpInput.select();
 });
 
 els.refreshBtn.addEventListener("click", loadSubjects);

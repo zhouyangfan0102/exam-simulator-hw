@@ -1058,7 +1058,7 @@ def prune_old_exams() -> None:
 
 
 class ExamHandler(SimpleHTTPRequestHandler):
-    server_version = "ExamSimulator/1.2"
+    server_version = "ExamSimulator/1.3.1"
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, directory=str(ROOT), **kwargs)
@@ -1308,7 +1308,11 @@ class ExamHandler(SimpleHTTPRequestHandler):
                 random.shuffle(selected)
 
         exam_id = uuid.uuid4().hex
-        EXAMS[exam_id] = {"created": time.time(), "questions": selected}
+        EXAMS[exam_id] = {
+            "created": time.time(),
+            "questions": selected,
+            "questionMap": {question.id: question for question in selected},
+        }
         self.send_json(
             {
                 "examId": exam_id,
@@ -1326,8 +1330,11 @@ class ExamHandler(SimpleHTTPRequestHandler):
 
         question_id = str(body.get("questionId", ""))
         given = str(body.get("answer", "")).strip()
-        questions: list[Question] = exam["questions"]
-        question = next((item for item in questions if item.id == question_id), None)
+        question_map: dict[str, Question] = exam.get("questionMap", {})
+        question = question_map.get(question_id)
+        if question is None:
+            questions: list[Question] = exam["questions"]
+            question = next((item for item in questions if item.id == question_id), None)
         if not question:
             self.send_json({"error": "题目不存在，请重新开始考试。"}, status=404)
             return
