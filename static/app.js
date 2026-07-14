@@ -891,11 +891,11 @@ function renderCurrentQuestion() {
     ${renderChoiceButtons(prepared)}
     <div class="answer-review hidden"></div>
     <div class="question-pagination" aria-label="题目翻页">
-      <button class="question-page-button" data-action="previous" type="button" aria-label="上一题">
+      <button class="question-page-button" data-action="previous" type="button" aria-label="上一题" aria-keyshortcuts="ArrowLeft ArrowUp">
         <span aria-hidden="true">‹</span><span>上一题</span>
       </button>
       <span class="question-position">${state.currentIndex + 1} / ${state.questions.length}</span>
-      <button class="question-page-button" data-action="next" type="button" aria-label="下一题">
+      <button class="question-page-button" data-action="next" type="button" aria-label="下一题" aria-keyshortcuts="ArrowRight ArrowDown">
         <span>下一题</span><span aria-hidden="true">›</span>
       </button>
     </div>
@@ -1299,7 +1299,28 @@ document.addEventListener("click", (event) => {
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
     closeBankMenu();
+    return;
   }
+
+  const directions = {
+    ArrowLeft: -1,
+    ArrowUp: -1,
+    ArrowRight: 1,
+    ArrowDown: 1,
+  };
+  const offset = directions[event.key];
+  if (!offset || event.ctrlKey || event.metaKey || event.altKey || event.defaultPrevented) {
+    return;
+  }
+  const target = event.target;
+  if (target instanceof HTMLElement && (target.isContentEditable || target.matches("input, textarea, select"))) {
+    return;
+  }
+  if (!state.questions.length || els.examLayout.classList.contains("hidden")) {
+    return;
+  }
+  event.preventDefault();
+  showQuestion(state.currentIndex + offset);
 });
 els.searchBtn.addEventListener("click", searchQuestions);
 els.searchInput.addEventListener("keydown", (event) => {

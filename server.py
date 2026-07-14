@@ -486,14 +486,17 @@ def split_inline_answer(value: str) -> tuple[str, str]:
 def infer_question_type(explicit_type: str, answer: str, options: list[str]) -> str:
     if explicit_type:
         return explicit_type
-    if normalize_bool(answer) or normalize_answer_value(answer) in {"对", "错"}:
+    normalized_answer = normalize_answer_value(answer)
+    if normalize_bool(answer) or normalized_answer in {"对", "错"}:
         return "判断题"
-    compact_answer = re.sub(r"[^A-H]", "", normalize_fullwidth(answer).upper())
+    compact_answer = re.sub(r"[^A-H]", "", normalize_fullwidth(normalized_answer).upper())
     if len(compact_answer) > 1:
         return "多选题"
+    if len(compact_answer) == 1:
+        return "单选题"
     if options:
         return "单选题"
-    return "单选题"
+    return "未分类"
 
 
 def finalize_question(item: ParsedQuestion | None, output: list[ParsedQuestion]) -> None:
@@ -877,6 +880,12 @@ def load_question_bank(path: Path | None = None) -> dict[str, Any]:
 
     for question in questions:
         question.question = normalize_question_layout(question.question)
+        _stem, options = split_question_options(question.question)
+        question.qtype = infer_question_type(
+            detect_question_type(question.qtype),
+            question.answer,
+            options,
+        )
 
     counts: dict[str, int] = {}
     for question in questions:
