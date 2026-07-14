@@ -379,53 +379,76 @@ function answerMode(type) {
 }
 
 function parseOptions(text) {
-  const source = String(text || "").replace(/\r\n/g, "\n");
-  const lines = source.split("\n");
-  const stemLines = [];
-  const options = [];
-
-  lines.forEach((line) => {
-    const match = line.match(/^\s*([A-Ha-hＡ-Ｈａ-ｈ])\s*[\.\uFF0E、:：\)）]\s*(.*)$/);
-    if (match) {
-      options.push({
-        key: normalizeOptionKey(match[1]),
-        text: match[2].trim(),
+  const source = String(text || "").replace(/\r\n?/g, "\n").trim();
+  const candidates = [];
+  const addMatches = (pattern, keyGroup, priority, indexOffset = () => 0) => {
+    for (const match of source.matchAll(pattern)) {
+      const offset = indexOffset(match);
+      candidates.push({
+        index: match.index + offset,
+        end: match.index + match[0].length,
+        key: normalizeOptionKey(match[keyGroup]),
+        priority,
       });
+    }
+  };
+
+  addMatches(/[（(\[【]\s*([A-Ha-hＡ-Ｈａ-ｈ])\s*[）)\]】]\s*/g, 1, 3);
+  addMatches(/([A-Ha-hＡ-Ｈａ-ｈ])\s*[\.\uFF0E、:：\)）]\s*/g, 1, 2);
+  addMatches(
+    /(^|[\n\t \u3000]+)([A-Ha-hＡ-Ｈａ-ｈ])[\t \u3000]+(?=\S)/gm,
+    2,
+    1,
+    (match) => match[1].length,
+  );
+
+  candidates.sort((left, right) => left.index - right.index
+    || right.priority - left.priority
+    || (right.end - right.index) - (left.end - left.index));
+  const markers = [];
+  candidates.forEach((candidate) => {
+    if (markers.length && candidate.index < markers[markers.length - 1].end) {
       return;
     }
-    if (options.length) {
-      const last = options[options.length - 1];
-      last.text = `${last.text}${last.text ? "\n" : ""}${line.trim()}`.trim();
-      return;
-    }
-    stemLines.push(line);
+    markers.push(candidate);
   });
 
-  if (options.length >= 2) {
-    return {
-      stem: stemLines.join("\n").trim() || source.trim(),
-      options,
-    };
+  let optionMarkers = [];
+  markers.forEach((marker, startIndex) => {
+    if (marker.key !== "A") {
+      return;
+    }
+    let expectedCode = "A".charCodeAt(0);
+    const sequence = [];
+    for (const candidate of markers.slice(startIndex)) {
+      if (candidate.key === "A" && sequence.length) {
+        break;
+      }
+      if (candidate.key === String.fromCharCode(expectedCode)) {
+        sequence.push(candidate);
+        expectedCode += 1;
+      }
+    }
+    if (sequence.length > optionMarkers.length) {
+      optionMarkers = sequence;
+    }
+  });
+
+  if (optionMarkers.length < 2) {
+    return { stem: source, options: [] };
   }
 
-  const markers = [...source.matchAll(/([A-Ha-hＡ-Ｈａ-ｈ])\s*[\.\uFF0E、:：\)）]\s*/g)];
-  if (markers.length >= 2) {
-    const inlineOptions = markers.map((marker, index) => {
-      const next = markers[index + 1];
-      const start = marker.index + marker[0].length;
-      const end = next ? next.index : source.length;
-      return {
-        key: normalizeOptionKey(marker[1]),
-        text: source.slice(start, end).trim(),
-      };
-    });
+  const options = optionMarkers.map((marker, index) => {
+    const next = optionMarkers[index + 1];
     return {
-      stem: source.slice(0, markers[0].index).trim() || source.trim(),
-      options: inlineOptions,
+      key: marker.key,
+      text: source.slice(marker.end, next ? next.index : source.length).trim(),
     };
-  }
-
-  return { stem: source.trim(), options: [] };
+  });
+  return {
+    stem: source.slice(0, optionMarkers[0].index).trim() || source,
+    options,
+  };
 }
 
 function fallbackOptions() {
@@ -867,6 +890,15 @@ function renderCurrentQuestion() {
     <input class="answer-value" type="hidden" />
     ${renderChoiceButtons(prepared)}
     <div class="answer-review hidden"></div>
+    <div class="question-pagination" aria-label="题目翻页">
+      <button class="question-page-button" data-action="previous" type="button" aria-label="上一题">
+        <span aria-hidden="true">‹</span><span>上一题</span>
+      </button>
+      <span class="question-position">${state.currentIndex + 1} / ${state.questions.length}</span>
+      <button class="question-page-button" data-action="next" type="button" aria-label="下一题">
+        <span>下一题</span><span aria-hidden="true">›</span>
+      </button>
+    </div>
     <div class="question-actions">
       <button class="mark-button" data-action="mark" type="button">标记题目</button>
       <button class="submit-answer-button" data-action="check" type="button">提交答案</button>
@@ -888,13 +920,15 @@ function renderCurrentQuestion() {
   const markButton = card.querySelector('[data-action="mark"]');
   markButton.textContent = marked ? "取消标记" : "标记题目";
   markButton.classList.toggle("active", marked);
+  card.querySelector('[data-action="previous"]').disabled = state.currentIndex === 0;
+  card.querySelector('[data-action="next"]').disabled = state.currentIndex === state.questions.length - 1;
 
   const result = state.checked.get(question.id);
   if (result) {
     applyQuestionFeedback(card, result, { lock: state.submitted });
   }
   if (state.submitted) {
-    card.querySelectorAll("[data-action]").forEach((button) => {
+    card.querySelectorAll('[data-action="mark"], [data-action="check"], [data-action="finish"]').forEach((button) => {
       button.disabled = true;
     });
   }
@@ -1132,6 +1166,12 @@ els.questionForm.addEventListener("click", (event) => {
   if (actionButton) {
     const card = actionButton.closest(".question-card");
     const action = actionButton.dataset.action;
+    if (action === "previous") {
+      showQuestion(state.currentIndex - 1);
+    }
+    if (action === "next") {
+      showQuestion(state.currentIndex + 1);
+    }
     if (action === "mark") {
       toggleMark(card);
     }

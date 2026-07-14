@@ -331,13 +331,18 @@ def build_question_bank_template() -> bytes:
 
 def looks_like_header(qtype: str, answer: str, question: str) -> bool:
     def clean(value: str) -> str:
-        return re.sub(r"\s+", "", value).lower()
+        normalized = normalize_fullwidth(value).strip().lower()
+        return re.sub(r"[\s:：()（）\[\]【】_\-]+", "", normalized)
 
     a, b, c = clean(qtype), clean(answer), clean(question)
-    type_words = {"题型", "类型", "questiontype", "type"}
-    answer_words = {"答案", "正确答案", "answer", "answers"}
-    question_words = {"问题", "题目", "question", "questions"}
-    return a in type_words and b in answer_words and c in question_words
+    type_header = a in {"题型", "题目类型", "问题类型", "类型", "questiontype", "type"}
+    answer_header = b in {"答案", "正确答案", "参考答案", "标准答案", "answer", "answers"}
+    question_header = (
+        c in {"问题", "题目", "题干", "题目内容", "问题内容", "question", "questions"}
+        or c.startswith(("问题", "题目", "题干"))
+        or ("题干" in c and "选项" in c)
+    )
+    return sum((type_header, answer_header, question_header)) >= 2 and (type_header or answer_header)
 
 
 def compact_header(value: str) -> str:
@@ -376,6 +381,75 @@ def strip_question_number(value: str) -> str:
 
 def option_match(value: str) -> re.Match[str] | None:
     return re.match(r"^\s*([A-Ha-hＡ-Ｈａ-ｈ])\s*[\.\uFF0E、:：\)）]\s*(.+?)\s*$", normalize_fullwidth(value))
+
+
+def option_markers(value: str) -> list[tuple[int, int, str]]:
+    text = str(value or "").replace("\r\n", "\n").replace("\r", "\n")
+    candidates: list[tuple[int, int, str, int]] = []
+    patterns = [
+        (re.compile(r"[（(\[【]\s*([A-Ha-hＡ-Ｈａ-ｈ])\s*[）)\]】]\s*"), 3, 1),
+        (re.compile(r"([A-Ha-hＡ-Ｈａ-ｈ])\s*[\.\uFF0E、:：\)）]\s*"), 2, 1),
+    ]
+    for pattern, priority, key_group in patterns:
+        for match in pattern.finditer(text):
+            key = normalize_fullwidth(match.group(key_group)).upper()
+            candidates.append((match.start(), match.end(), key, priority))
+
+    bare_pattern = re.compile(
+        r"(^|[\n\t \u3000]+)([A-Ha-hＡ-Ｈａ-ｈ])[\t \u3000]+(?=\S)",
+        flags=re.MULTILINE,
+    )
+    for match in bare_pattern.finditer(text):
+        key_start = match.start(2)
+        key = normalize_fullwidth(match.group(2)).upper()
+        candidates.append((key_start, match.end(), key, 1))
+
+    candidates.sort(key=lambda item: (item[0], -item[3], -(item[1] - item[0])))
+    non_overlapping: list[tuple[int, int, str, int]] = []
+    for candidate in candidates:
+        if non_overlapping and candidate[0] < non_overlapping[-1][1]:
+            continue
+        non_overlapping.append(candidate)
+
+    best: list[tuple[int, int, str]] = []
+    for start_index, candidate in enumerate(non_overlapping):
+        if candidate[2] != "A":
+            continue
+        expected = ord("A")
+        sequence: list[tuple[int, int, str]] = []
+        for start, end, key, _priority in non_overlapping[start_index:]:
+            if key == "A" and sequence:
+                break
+            if key == chr(expected):
+                sequence.append((start, end, key))
+                expected += 1
+                if expected > ord("H"):
+                    break
+        if len(sequence) > len(best):
+            best = sequence
+    return best if len(best) >= 2 else []
+
+
+def split_question_options(value: str) -> tuple[str, list[str]]:
+    source = str(value or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    markers = option_markers(source)
+    if not markers:
+        return source, []
+
+    options = []
+    for index, (start, end, key) in enumerate(markers):
+        next_start = markers[index + 1][0] if index + 1 < len(markers) else len(source)
+        option_text = source[end:next_start].strip()
+        options.append(f"{key}. {option_text}".rstrip())
+    return source[: markers[0][0]].strip(), options
+
+
+def normalize_question_layout(value: str) -> str:
+    source = str(value or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    stem, options = split_question_options(source)
+    if not options:
+        return source
+    return "\n".join(([stem] if stem else []) + options)
 
 
 def normalize_option_line(value: str) -> str:
@@ -425,6 +499,20 @@ def infer_question_type(explicit_type: str, answer: str, options: list[str]) -> 
 def finalize_question(item: ParsedQuestion | None, output: list[ParsedQuestion]) -> None:
     if not item:
         return
+    inline_stem, inline_options = split_question_options(item.stem)
+    if inline_options:
+        item.stem = inline_stem
+        item.options = inline_options + item.options
+    expanded_options: list[str] = []
+    for option in item.options:
+        option_prefix, nested_options = split_question_options(option)
+        if nested_options:
+            if option_prefix:
+                expanded_options.append(option_prefix)
+            expanded_options.extend(nested_options)
+        else:
+            expanded_options.append(option)
+    item.options = expanded_options
     item.stem = strip_question_number(strip_question_type(item.stem)).strip()
     item.options = [normalize_option_line(option) for option in item.options if normalize_option_line(option)]
     item.answer = normalize_answer_value(item.answer)
@@ -745,7 +833,6 @@ def load_question_bank(path: Path | None = None) -> dict[str, Any]:
                 except KeyError as exc:
                     raise WorkbookReadError(f"无法读取工作表：{subject}") from exc
 
-                first_data_row = True
                 last_question: Question | None = None
                 for row in root.iter():
                     if local_name(row.tag) != "row":
@@ -761,13 +848,12 @@ def load_question_bank(path: Path | None = None) -> dict[str, Any]:
 
                     qtype = cells.get("A", "").strip()
                     answer = cells.get("B", "").strip()
-                    question_text = cells.get("C", "").strip()
+                    question_text = cells.get("C", "").replace("\r\n", "\n").replace("\r", "\n").strip()
                     if not any([qtype, answer, question_text]):
                         continue
-                    if first_data_row and looks_like_header(qtype, answer, question_text):
-                        first_data_row = False
+                    if looks_like_header(qtype, answer, question_text):
+                        last_question = None
                         continue
-                    first_data_row = False
                     if not question_text:
                         continue
                     if not qtype and not answer and last_question:
@@ -788,6 +874,9 @@ def load_question_bank(path: Path | None = None) -> dict[str, Any]:
         raise WorkbookReadError("题库文件不是有效的 .xlsx 文件。") from exc
     except ET.ParseError as exc:
         raise WorkbookReadError("题库 XML 解析失败，请确认 Excel 文件保存正常。") from exc
+
+    for question in questions:
+        question.question = normalize_question_layout(question.question)
 
     counts: dict[str, int] = {}
     for question in questions:
@@ -1058,7 +1147,7 @@ def prune_old_exams() -> None:
 
 
 class ExamHandler(SimpleHTTPRequestHandler):
-    server_version = "ExamSimulator/1.3.1"
+    server_version = "ExamSimulator/1.3.3"
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, directory=str(ROOT), **kwargs)
