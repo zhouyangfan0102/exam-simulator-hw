@@ -214,12 +214,21 @@ function renderBankSelect() {
   els.bankMenu.innerHTML = availableBanks.map((bank) => {
     const title = bankTitle(bank.name || bank.filename);
     const selected = bank.filename === state.currentBank;
+    const invalid = Boolean(bank.invalid);
+    const deleteDisabled = availableBanks.length <= 1;
+    const selectTitle = invalid ? `${title}（无法读取：${bank.error || "文件格式不正确"}）` : title;
+    const deleteTitle = deleteDisabled ? "至少保留一个题库" : `删除题库：${title}`;
     return `
-      <button class="bank-menu-item${selected ? " is-selected" : ""}" type="button" role="option"
-        data-bank-filename="${escapeHtml(bank.filename)}" aria-selected="${selected}" title="${escapeHtml(title)}">
-        <span>${escapeHtml(title)}</span>
-        <small>${Number(bank.total) || 0} 题</small>
-      </button>
+      <div class="bank-menu-item${selected ? " is-selected" : ""}${invalid ? " is-invalid" : ""}"
+        role="option" aria-selected="${selected}">
+        <button class="bank-select-option" type="button" data-bank-filename="${escapeHtml(bank.filename)}"
+          title="${escapeHtml(selectTitle)}"${invalid ? " disabled" : ""}>
+          <span>${escapeHtml(title)}</span>
+          <small>${invalid ? "无法读取" : `${Number(bank.total) || 0} 题`}</small>
+        </button>
+        <button class="bank-delete-button" type="button" data-delete-bank="${escapeHtml(bank.filename)}"
+          title="${escapeHtml(deleteTitle)}" aria-label="${escapeHtml(deleteTitle)}"${deleteDisabled ? " disabled" : ""}>×</button>
+      </div>
     `;
   }).join("");
   els.bankMenuButton.disabled = !availableBanks.length;
@@ -502,6 +511,34 @@ async function switchBank(filename) {
   }
 }
 
+async function deleteBank(filename) {
+  const bank = state.banks.find((item) => item.filename === filename);
+  const title = bankTitle(bank?.name || filename);
+  const currentHint = filename === state.currentBank ? "\n删除后将自动切换到其他题库。" : "";
+  if (!window.confirm(`确定删除题库“${title}”吗？此操作无法撤销。${currentHint}`)) {
+    return;
+  }
+
+  els.bankMenuButton.disabled = true;
+  closeBankMenu();
+  showNotice("正在删除题库...");
+  try {
+    const data = await api("/api/banks/delete", {
+      method: "POST",
+      body: JSON.stringify({ filename }),
+    });
+    clearCurrentExam();
+    applyBankData(data);
+    clearSearchResults(true);
+    showNotice(data.message || "题库删除成功。");
+  } catch (error) {
+    showNotice(error.message, "error");
+    renderBankSelect();
+  } finally {
+    els.bankMenuButton.disabled = !state.banks.length;
+  }
+}
+
 async function searchQuestions() {
   const keyword = els.searchInput.value.trim();
   if (!keyword) {
@@ -706,7 +743,9 @@ function renderQuestionNav() {
     button.type = "button";
     button.dataset.index = String(index);
     button.dataset.id = question.id;
-    button.textContent = String(index + 1);
+    const number = String(index + 1);
+    button.dataset.digits = String(number.length);
+    button.textContent = number;
     button.title = `${index + 1}. ${question.subject} ${question.type}`;
     els.questionNav.appendChild(button);
   });
@@ -1000,6 +1039,11 @@ els.questionNav.addEventListener("click", (event) => {
 els.refreshBtn.addEventListener("click", loadSubjects);
 els.bankMenuButton.addEventListener("click", toggleBankMenu);
 els.bankMenu.addEventListener("click", (event) => {
+  const deleteButton = event.target.closest("[data-delete-bank]");
+  if (deleteButton) {
+    deleteBank(deleteButton.dataset.deleteBank);
+    return;
+  }
   const option = event.target.closest("[data-bank-filename]");
   if (!option) {
     return;

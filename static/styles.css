@@ -117,6 +117,7 @@ input:focus-visible {
   color: #ffffff;
   font-size: 32px;
   font-weight: 900;
+  overflow-wrap: anywhere;
 }
 
 .bank-switcher {
@@ -197,7 +198,10 @@ input:focus-visible {
   width: max(100%, 260px);
   max-width: min(420px, calc(100vw - 32px));
   max-height: 260px;
+  overflow-x: hidden;
   overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
   padding: 6px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -207,21 +211,18 @@ input:focus-visible {
 
 .bank-menu-item {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) 32px;
   align-items: center;
-  gap: 12px;
+  gap: 4px;
   width: 100%;
   min-height: 38px;
-  border: 0;
   border-radius: 6px;
-  padding: 7px 9px;
+  padding: 2px;
   background: #ffffff;
   color: var(--ink);
-  text-align: left;
 }
 
-.bank-menu-item:hover,
-.bank-menu-item:focus-visible {
+.bank-menu-item:hover {
   background: var(--accent-soft);
 }
 
@@ -230,7 +231,33 @@ input:focus-visible {
   color: var(--bg-end);
 }
 
-.bank-menu-item span {
+.bank-select-option {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  min-height: 34px;
+  border: 0;
+  border-radius: 5px;
+  padding: 5px 7px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.bank-select-option:focus-visible,
+.bank-delete-button:focus-visible {
+  outline: 2px solid var(--bg-start);
+  outline-offset: 1px;
+}
+
+.bank-select-option:disabled {
+  cursor: not-allowed;
+  opacity: 0.68;
+}
+
+.bank-select-option span {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -239,11 +266,38 @@ input:focus-visible {
   font-weight: 900;
 }
 
-.bank-menu-item small {
+.bank-select-option small {
   color: var(--muted);
   font-size: 12px;
   font-weight: 800;
   white-space: nowrap;
+}
+
+.bank-menu-item.is-invalid .bank-select-option small {
+  color: var(--red);
+}
+
+.bank-delete-button {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 20px;
+  line-height: 1;
+}
+
+.bank-delete-button:hover:not(:disabled) {
+  background: #ffe7e7;
+  color: var(--red);
+}
+
+.bank-delete-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.32;
 }
 
 .icon-button,
@@ -429,6 +483,7 @@ input:focus-visible {
   pointer-events: none;
   transform: translate(-50%, 4px);
   transition: opacity 120ms ease, transform 120ms ease;
+  overflow-wrap: anywhere;
   white-space: normal;
 }
 
@@ -566,6 +621,13 @@ input:focus-visible {
   font-weight: 800;
 }
 
+.search-result-meta span,
+.search-result-meta strong {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
 .search-result-meta strong {
   color: var(--green);
 }
@@ -576,6 +638,7 @@ input:focus-visible {
   font-size: 14px;
   font-weight: 800;
   line-height: 1.65;
+  overflow-wrap: anywhere;
   white-space: pre-line;
 }
 
@@ -668,6 +731,7 @@ input:focus-visible {
   padding: 12px 14px;
   margin: 16px 0;
   font-weight: 900;
+  overflow-wrap: anywhere;
 }
 
 .muted {
@@ -698,6 +762,7 @@ input:focus-visible {
 .status-grid {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-auto-rows: 40px;
   gap: 14px;
 }
 
@@ -805,12 +870,14 @@ input:focus-visible {
 .index-badge {
   display: grid;
   place-items: center;
-  width: 40px;
+  width: auto;
+  min-width: 40px;
   height: 40px;
   border-radius: 8px;
   background: linear-gradient(135deg, var(--bg-start), var(--bg-end));
   color: #ffffff;
   font-weight: 900;
+  padding: 0 8px;
   flex: 0 0 auto;
 }
 
@@ -1003,7 +1070,12 @@ input:focus-visible {
 .question-nav-panel {
   position: sticky;
   top: 18px;
+  display: flex;
+  flex-direction: column;
   width: 280px;
+  max-height: calc(100vh - 36px);
+  max-height: calc(100dvh - 36px);
+  overflow: hidden;
   border-radius: 8px;
   background: #f3f4f6;
   box-shadow: var(--shadow);
@@ -1012,6 +1084,7 @@ input:focus-visible {
 }
 
 .nav-title {
+  flex: 0 0 auto;
   border-bottom: 1px solid var(--line);
   padding-bottom: 12px;
 }
@@ -1030,24 +1103,50 @@ input:focus-visible {
 }
 
 .question-nav {
+  flex: 1 1 auto;
+  min-height: 0;
+  width: 100%;
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
-  gap: 10px;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  align-content: start;
   justify-content: center;
   margin-top: 16px;
+  padding: 2px 4px 8px 2px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
 .nav-item {
   position: relative;
   display: grid;
   place-items: center;
-  aspect-ratio: 1;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  height: 40px;
+  padding: 0 2px;
+  overflow: hidden;
   border: 2px solid #d1d5db;
   border-radius: 8px;
   background: #ffffff;
   color: var(--bg-end);
+  font-size: 14px;
   font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  white-space: nowrap;
   transition: transform 140ms ease, box-shadow 140ms ease, border-color 140ms ease;
+}
+
+.nav-item[data-digits="3"] {
+  font-size: 13px;
+}
+
+.nav-item[data-digits="4"],
+.nav-item[data-digits="5"] {
+  font-size: 11px;
 }
 
 .nav-item:hover {
@@ -1122,9 +1221,18 @@ input:focus-visible {
     width: 100%;
   }
 
+  .bank-menu {
+    left: 50%;
+    width: min(420px, calc(100vw - 48px));
+    max-width: none;
+    transform: translateX(-50%);
+  }
+
   .brand-actions {
     position: static;
     align-self: center;
+    justify-content: center;
+    flex-wrap: wrap;
     margin-top: 12px;
   }
 
@@ -1165,10 +1273,12 @@ input:focus-visible {
   .question-nav-panel {
     position: static;
     order: -1;
+    max-height: min(360px, calc(100dvh - 32px));
   }
 
   .question-nav {
     grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 8px;
   }
 
   .judge-grid {

@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import os
 import random
 import re
 import shutil
 import sys
+import threading
 import time
 import uuid
 import zipfile
@@ -21,9 +23,11 @@ ROOT = Path(__file__).resolve().parent
 DATA_DIR = ROOT / "data"
 DATA_FILE = DATA_DIR / "题库.xlsx"
 BANK_META_FILE = DATA_DIR / "bank_meta.json"
+RUNTIME_FILE = DATA_DIR / ".server-runtime.json"
 HOST = "127.0.0.1"
 DEFAULT_PORT = 8000
 EXAMS: dict[str, dict[str, Any]] = {}
+SHUTDOWN_TOKEN = ""
 QUESTION_TYPE_ORDER = ("判断题", "单选题", "多选题")
 RANDOM_EXAM_LIMIT = 30
 TEMPLATE_FILENAME = "题库模板.xlsx"
@@ -805,15 +809,25 @@ def available_question_banks() -> list[dict[str, Any]]:
     for path in available_question_bank_paths():
         try:
             bank = load_question_bank(path)
-        except WorkbookReadError:
-            continue
-        banks.append(
-            {
-                "filename": path.name,
-                "name": bank["name"],
-                "total": bank["total"],
-            }
-        )
+        except WorkbookReadError as exc:
+            banks.append(
+                {
+                    "filename": path.name,
+                    "name": path.name,
+                    "total": 0,
+                    "invalid": True,
+                    "error": str(exc),
+                }
+            )
+        else:
+            banks.append(
+                {
+                    "filename": path.name,
+                    "name": bank["name"],
+                    "total": bank["total"],
+                    "invalid": False,
+                }
+            )
     return banks
 
 
@@ -1044,7 +1058,7 @@ def prune_old_exams() -> None:
 
 
 class ExamHandler(SimpleHTTPRequestHandler):
-    server_version = "ExamSimulator/1.0"
+    server_version = "ExamSimulator/1.2"
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, directory=str(ROOT), **kwargs)
@@ -1131,6 +1145,10 @@ class ExamHandler(SimpleHTTPRequestHandler):
                 return self.upload_bank()
             if path == "/api/banks/select":
                 return self.select_bank()
+            if path == "/api/banks/delete":
+                return self.delete_bank()
+            if path == "/api/shutdown":
+                return self.shutdown_server()
             if path == "/api/format":
                 return self.format_question_list()
             match = re.fullmatch(r"/api/exams/([^/]+)/check", path)
@@ -1185,6 +1203,55 @@ class ExamHandler(SimpleHTTPRequestHandler):
         EXAMS.clear()
         bank = load_question_bank(path)
         self.send_json(question_bank_payload(bank, "题库切换成功。"))
+
+    def delete_bank(self) -> None:
+        body = self.read_json_body()
+        path = resolve_question_bank_path(str(body.get("filename", "")))
+        paths = available_question_bank_paths()
+        if len(paths) <= 1:
+            raise WorkbookReadError("至少保留一个题库，不能删除最后一个题库。")
+
+        current_path = current_question_bank_path()
+        fallback_bank: dict[str, Any] | None = None
+        fallback_path: Path | None = None
+        if path == current_path:
+            for candidate in paths:
+                if candidate == path:
+                    continue
+                try:
+                    fallback_bank = load_question_bank(candidate)
+                except WorkbookReadError:
+                    continue
+                fallback_path = candidate
+                break
+            if fallback_bank is None or fallback_path is None:
+                raise WorkbookReadError("没有其他可用题库，无法删除当前题库。")
+
+        deleted_name = path.stem
+        try:
+            path.unlink()
+        except PermissionError as exc:
+            raise WorkbookReadError("题库删除失败，请先关闭正在使用该文件的 Excel 后重试。") from exc
+        except OSError as exc:
+            raise WorkbookReadError(f"题库删除失败：{exc}") from exc
+
+        if fallback_bank is not None and fallback_path is not None:
+            save_bank_meta(fallback_path.name, fallback_path.name)
+            bank = fallback_bank
+            message = f"已删除题库“{deleted_name}”，并切换到“{fallback_path.stem}”。"
+        else:
+            bank = load_question_bank(current_path)
+            message = f"已删除题库“{deleted_name}”。"
+        EXAMS.clear()
+        self.send_json(question_bank_payload(bank, message))
+
+    def shutdown_server(self) -> None:
+        body = self.read_json_body()
+        if not SHUTDOWN_TOKEN or str(body.get("token", "")) != SHUTDOWN_TOKEN:
+            self.send_json({"error": "关闭令牌无效。"}, status=403)
+            return
+        self.send_json({"message": "考试模拟器正在关闭。"})
+        threading.Thread(target=self.server.shutdown, daemon=True).start()
 
     def format_question_list(self) -> None:
         content_type = self.headers.get("Content-Type", "")
@@ -1313,9 +1380,29 @@ def bind_server(port: int) -> ThreadingHTTPServer:
 
 
 def main() -> None:
+    global SHUTDOWN_TOKEN
     port = int(sys.argv[1]) if len(sys.argv) > 1 else DEFAULT_PORT
     server = bind_server(port)
     actual_port = server.server_address[1]
+    SHUTDOWN_TOKEN = uuid.uuid4().hex
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    started_at = int(time.time())
+    try:
+        RUNTIME_FILE.write_text(
+            json.dumps(
+                {
+                    "pid": os.getpid(),
+                    "port": actual_port,
+                    "token": SHUTDOWN_TOKEN,
+                    "startedAt": started_at,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+    except OSError as exc:
+        print(f"提示：无法创建关闭记录文件：{exc}")
     print("")
     print("题库模拟考试已启动")
     print(f"访问地址：http://{HOST}:{actual_port}")
@@ -1326,6 +1413,14 @@ def main() -> None:
         server.serve_forever()
     except KeyboardInterrupt:
         print("\n已停止。")
+    finally:
+        server.server_close()
+        try:
+            runtime = json.loads(RUNTIME_FILE.read_text(encoding="utf-8"))
+            if int(runtime.get("pid", 0)) == os.getpid():
+                RUNTIME_FILE.unlink(missing_ok=True)
+        except (OSError, ValueError, json.JSONDecodeError):
+            pass
 
 
 if __name__ == "__main__":
