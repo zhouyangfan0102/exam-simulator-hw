@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>考试模拟系统</title>
+    <link rel="stylesheet" href="/static/styles.css?v=20260710-2" />
+  </head>
+  <body>
+    <div class="container">
+      <main class="app-shell">
+        <header class="topbar">
+          <div class="brand">
+            <div class="brand-main">
+              <h1 id="appTitle">考试模拟系统</h1>
+              <div class="bank-switcher" id="bankSwitcher">
+                <span class="bank-label">当前题库：</span>
+                <div class="bank-dropdown" id="bankDropdown">
+                  <button class="bank-menu-button" id="bankMenuButton" type="button" aria-haspopup="listbox" aria-expanded="false">
+                    <span class="bank-menu-text" id="bankMenuText">正在读取...</span>
+                    <span class="bank-chevron" aria-hidden="true"></span>
+                  </button>
+                  <div class="bank-menu hidden" id="bankMenu" role="listbox" aria-label="选择题库"></div>
+                </div>
+                <span class="bank-total" id="bankMeta">正在读取...</span>
+              </div>
+            </div>
+            <div class="brand-actions" id="brandActions">
+              <a class="upload-button" href="/static/%E9%A2%98%E5%BA%93%E6%A8%A1%E6%9D%BF.xlsx" download="题库模板.xlsx">题库模板</a>
+              <label class="upload-button" for="formatUpload">整理题库</label>
+              <input class="hidden" id="formatUpload" type="file" accept=".docx,.xlsx,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
+              <label class="upload-button" for="bankUpload">上传题库</label>
+              <input class="hidden" id="bankUpload" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
+              <button class="icon-button" id="refreshBtn" type="button" title="重新读取题库" aria-label="重新读取题库">
+                ↻
+              </button>
+            </div>
+          </div>
+
+          <div class="top-controls" id="topControls">
+            <section class="control-panel subject-panel">
+              <div class="panel-title">
+                <h2>科目选择</h2>
+                <div class="subject-actions">
+                  <button class="ghost-button" id="selectAllBtn" type="button">全选</button>
+                  <button class="ghost-button" id="clearAllBtn" type="button">清空</button>
+                </div>
+              </div>
+              <div class="subject-list" id="subjectList"></div>
+            </section>
+
+            <section class="control-panel search-panel">
+              <div class="search-row">
+                <label class="search-label" for="searchInput">题目搜索</label>
+                <input class="search-input" id="searchInput" type="search" placeholder="输入题干、答案、科目或题型关键词" autocomplete="off" />
+                <button class="secondary-button search-button" id="searchBtn" type="button">搜索</button>
+              </div>
+              <div class="search-results hidden" id="searchResults" aria-live="polite"></div>
+            </section>
+
+            <section class="control-panel setup-panel">
+              <div class="panel-title">
+                <h2>出题</h2>
+              </div>
+              <div class="setup-grid">
+                <div class="segmented" role="tablist" aria-label="出题模式">
+                  <button class="segment active" data-mode="random" type="button">随机</button>
+                  <button class="segment" data-mode="all" type="button">全量</button>
+                </div>
+                <label class="field" id="countField">
+                  <span>随机题数</span>
+                  <input id="questionCount" min="1" max="30" step="1" type="number" value="30" />
+                </label>
+                <label class="switch-row">
+                  <span>全量乱序</span>
+                  <input id="shuffleAll" type="checkbox" checked />
+                </label>
+                <div class="start-actions">
+                  <button class="primary-button" id="startBtn" type="button">开始考试</button>
+                  <button class="secondary-button" id="resetBtn" type="button">重置</button>
+                </div>
+              </div>
+            </section>
+
+            <section class="score-card hidden" id="scoreCard">
+              <span id="scoreValue">0</span>
+              <small id="scoreText">得分</small>
+            </section>
+          </div>
+        </header>
+
+        <section class="workspace">
+          <section class="exam-status hidden" id="examStatus" aria-label="考试状态">
+            <div class="exam-status-head">
+              <button class="secondary-button status-reset-button" id="statusResetBtn" type="button">重新开始</button>
+            </div>
+            <div class="status-grid">
+              <div class="status-box">
+                <span>总题数</span>
+                <strong id="statusTotal">0</strong>
+              </div>
+              <div class="status-box">
+                <span>已答</span>
+                <strong id="statusAnswered">0</strong>
+              </div>
+              <div class="status-box">
+                <span>正确</span>
+                <strong id="statusCorrect">0</strong>
+              </div>
+              <div class="status-box">
+                <span>正确率</span>
+                <strong id="statusAccuracy">0%</strong>
+              </div>
+              <div class="status-box">
+                <span>用时</span>
+                <strong id="statusElapsed">00:00</strong>
+              </div>
+            </div>
+          </section>
+
+          <div class="notice hidden" id="notice"></div>
+
+          <section class="exam-layout hidden" id="examLayout">
+            <form class="question-list" id="questionForm"></form>
+            <aside class="question-nav-panel" aria-label="题目导航">
+              <div class="nav-title">
+                <h2>题目导航</h2>
+                <p>点击序号切换题目</p>
+              </div>
+              <div class="question-nav" id="questionNav"></div>
+            </aside>
+          </section>
+        </section>
+      </main>
+    </div>
+
+    <script src="/static/app.js?v=20260710-2"></script>
+  </body>
+</html>
