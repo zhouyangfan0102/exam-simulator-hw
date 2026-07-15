@@ -56,6 +56,10 @@ jobs:
           if "\n" in title or "\r" in title:
               raise SystemExit("Release title must be a single line")
 
+          asset_name = data.get("asset_name", f"exam-simulator-{tag}.zip")
+          if not re.fullmatch(r"[A-Za-z0-9._-]+\.zip", asset_name):
+              raise SystemExit(f"Invalid release asset name: {asset_name}")
+
           notes_path = Path(os.environ["RUNNER_TEMP"]) / "release-notes.md"
           notes_path.write_text(data["notes"].rstrip() + "\n", encoding="utf-8")
 
@@ -63,6 +67,7 @@ jobs:
               output.write(f"tag={tag}\n")
               output.write(f"version={tag[1:]}\n")
               output.write(f"title={title}\n")
+              output.write(f"asset_name={asset_name}\n")
               output.write(f"notes_path={notes_path}\n")
           PY
 
@@ -76,6 +81,7 @@ jobs:
         id: package
         env:
           RELEASE_VERSION: ${{ steps.request.outputs.version }}
+          RELEASE_ASSET_NAME: ${{ steps.request.outputs.asset_name }}
           NOTES_PATH: ${{ steps.request.outputs.notes_path }}
         run: |
           python3 - <<'PY'
@@ -93,8 +99,8 @@ jobs:
           package_name = f"考试模拟器-v{version}"
           output_dir = Path(os.environ["RUNNER_TEMP"]) / "release"
           output_dir.mkdir(parents=True, exist_ok=True)
-          archive_path = output_dir / f"{package_name}.zip"
-          checksum_path = output_dir / f"{package_name}.zip.sha256"
+          archive_path = output_dir / os.environ["RELEASE_ASSET_NAME"]
+          checksum_path = output_dir / f"{archive_path.name}.sha256"
 
           files = [
               "server.py",
@@ -199,6 +205,8 @@ jobs:
           CHECKSUM_PATH: ${{ steps.package.outputs.checksum }}
         run: |
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release delete-asset "$RELEASE_TAG" "-${RELEASE_TAG}.zip" --yes >/dev/null 2>&1 || true
+            gh release delete-asset "$RELEASE_TAG" "-${RELEASE_TAG}.zip.sha256" --yes >/dev/null 2>&1 || true
             gh release upload "$RELEASE_TAG" "$ARCHIVE_PATH" "$CHECKSUM_PATH" --clobber
             gh release edit "$RELEASE_TAG" --title "$RELEASE_TITLE" --notes-file "$NOTES_PATH"
           else
