@@ -836,6 +836,9 @@ function renderQuestionNav() {
     button.title = `${index + 1}. ${question.subject} ${question.type}`;
     const result = state.checked.get(question.id);
     button.classList.toggle("current", index === state.currentIndex);
+    if (index === state.currentIndex) {
+      button.setAttribute("aria-current", "step");
+    }
     button.classList.toggle("marked", state.marked.has(question.id));
     button.classList.toggle("correct", Boolean(result?.correct));
     button.classList.toggle("wrong", Boolean(result && !result.correct));
@@ -891,11 +894,11 @@ function renderCurrentQuestion() {
     ${renderChoiceButtons(prepared)}
     <div class="answer-review hidden"></div>
     <div class="question-pagination" aria-label="题目翻页">
-      <button class="question-page-button" data-action="previous" type="button" aria-label="上一题" aria-keyshortcuts="ArrowLeft ArrowUp">
+      <button class="question-page-button" data-action="previous" type="button" title="上一题（← / ↑）" aria-label="上一题" aria-keyshortcuts="ArrowLeft ArrowUp">
         <span aria-hidden="true">‹</span><span>上一题</span>
       </button>
-      <span class="question-position">${state.currentIndex + 1} / ${state.questions.length}</span>
-      <button class="question-page-button" data-action="next" type="button" aria-label="下一题" aria-keyshortcuts="ArrowRight ArrowDown">
+      <span class="question-position" aria-live="polite" aria-atomic="true">${state.currentIndex + 1} / ${state.questions.length}</span>
+      <button class="question-page-button" data-action="next" type="button" title="下一题（→ / ↓）" aria-label="下一题" aria-keyshortcuts="ArrowRight ArrowDown">
         <span>下一题</span><span aria-hidden="true">›</span>
       </button>
     </div>
@@ -1296,19 +1299,20 @@ document.addEventListener("click", (event) => {
     closeBankMenu();
   }
 });
+const questionNavigationOffsets = {
+  ArrowLeft: -1,
+  ArrowUp: -1,
+  ArrowRight: 1,
+  ArrowDown: 1,
+};
+
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
     closeBankMenu();
     return;
   }
 
-  const directions = {
-    ArrowLeft: -1,
-    ArrowUp: -1,
-    ArrowRight: 1,
-    ArrowDown: 1,
-  };
-  const offset = directions[event.key];
+  const offset = questionNavigationOffsets[event.key];
   if (!offset || event.ctrlKey || event.metaKey || event.altKey || event.defaultPrevented) {
     return;
   }
