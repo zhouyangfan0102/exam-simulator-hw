@@ -5,7 +5,6 @@ data/.server-runtime.json
 data/bank_meta.json
 data/*.xlsx
 !data/题库.xlsx
-!data/multi_subject_test.xlsx
 
 .edge-*/
 .audit-*
