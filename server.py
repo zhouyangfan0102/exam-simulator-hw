@@ -1156,7 +1156,7 @@ def prune_old_exams() -> None:
 
 
 class ExamHandler(SimpleHTTPRequestHandler):
-    server_version = "ExamSimulator/1.3.3"
+    server_version = "ExamSimulator/1.3.4"
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, directory=str(ROOT), **kwargs)
