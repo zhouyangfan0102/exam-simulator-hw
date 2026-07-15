@@ -1,0 +1,217 @@
+name: Publish release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/release-requests/*.json"
+  workflow_dispatch:
+    inputs:
+      request_path:
+        description: Release request JSON path
+        required: true
+        default: .github/release-requests/v1.3.4.json
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out release request
+        uses: actions/checkout@v4
+
+      - name: Read release request
+        id: request
+        env:
+          REQUEST_PATH: ${{ inputs.request_path }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          from pathlib import Path
+
+          request_path = os.environ.get("REQUEST_PATH", "").strip()
+          if not request_path:
+              requests = sorted(
+                  Path(".github/release-requests").glob("v*.json"),
+                  key=lambda path: tuple(int(part) for part in path.stem[1:].split(".")),
+              )
+              if not requests:
+                  raise SystemExit("No release request found")
+              request = requests[-1]
+          else:
+              request = Path(request_path)
+
+          data = json.loads(request.read_text(encoding="utf-8"))
+          tag = data["tag"]
+          if not re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", tag):
+              raise SystemExit(f"Invalid release tag: {tag}")
+
+          title = data.get("title", tag)
+          if "\n" in title or "\r" in title:
+              raise SystemExit("Release title must be a single line")
+
+          notes_path = Path(os.environ["RUNNER_TEMP"]) / "release-notes.md"
+          notes_path.write_text(data["notes"].rstrip() + "\n", encoding="utf-8")
+
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+              output.write(f"tag={tag}\n")
+              output.write(f"version={tag[1:]}\n")
+              output.write(f"title={title}\n")
+              output.write(f"notes_path={notes_path}\n")
+          PY
+
+      - name: Check out tagged source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.request.outputs.tag }}
+          path: release-src
+
+      - name: Build release archive
+        id: package
+        env:
+          RELEASE_VERSION: ${{ steps.request.outputs.version }}
+          NOTES_PATH: ${{ steps.request.outputs.notes_path }}
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          import os
+          import re
+          import zipfile
+          from pathlib import Path
+
+          version = os.environ["RELEASE_VERSION"]
+          if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version):
+              raise SystemExit(f"Invalid release version: {version}")
+
+          source = Path("release-src")
+          package_name = f"考试模拟器-v{version}"
+          output_dir = Path(os.environ["RUNNER_TEMP"]) / "release"
+          output_dir.mkdir(parents=True, exist_ok=True)
+          archive_path = output_dir / f"{package_name}.zip"
+          checksum_path = output_dir / f"{package_name}.zip.sha256"
+
+          files = [
+              "server.py",
+              "Windows-启动考试模拟器.bat",
+              "Windows-关闭考试模拟器.bat",
+              "macOS-启动考试模拟器.command",
+              "macOS-关闭考试模拟器.command",
+              "使用说明.docx",
+              "templates/index.html",
+              "static/app.js",
+              "static/styles.css",
+              "static/题库模板.xlsx",
+              "data/题库.xlsx",
+          ]
+          missing = [path for path in files if not (source / path).is_file()]
+          if missing:
+              raise SystemExit("Missing release files: " + ", ".join(missing))
+
+          timestamp = (2026, 1, 1, 0, 0, 0)
+          directories = ["", "data", "static", "templates"]
+          with zipfile.ZipFile(
+              archive_path,
+              "w",
+              compression=zipfile.ZIP_DEFLATED,
+              compresslevel=9,
+          ) as archive:
+              for directory in directories:
+                  name = f"{package_name}/{directory}".rstrip("/") + "/"
+                  info = zipfile.ZipInfo(name, timestamp)
+                  info.create_system = 3
+                  info.external_attr = ((0o040000 | 0o755) << 16) | 0x10
+                  info.compress_type = zipfile.ZIP_STORED
+                  archive.writestr(info, b"")
+
+              for relative in files:
+                  path = source / relative
+                  info = zipfile.ZipInfo(f"{package_name}/{relative}", timestamp)
+                  info.create_system = 3
+                  mode = 0o755 if relative.endswith(".command") else 0o644
+                  info.external_attr = (0o100000 | mode) << 16
+                  info.compress_type = zipfile.ZIP_DEFLATED
+                  archive.writestr(
+                      info,
+                      path.read_bytes(),
+                      compress_type=zipfile.ZIP_DEFLATED,
+                      compresslevel=9,
+                  )
+
+          digest = hashlib.sha256(archive_path.read_bytes()).hexdigest()
+          checksum_path.write_text(
+              f"{digest}  {archive_path.name}\n",
+              encoding="utf-8",
+          )
+
+          notes_path = Path(os.environ["NOTES_PATH"])
+          with notes_path.open("a", encoding="utf-8") as notes:
+              notes.write("\n## 文件校验\n\n")
+              notes.write(f"`{archive_path.name}`\n\n")
+              notes.write(f"SHA-256：`{digest}`\n")
+
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+              output.write(f"archive={archive_path}\n")
+              output.write(f"checksum={checksum_path}\n")
+              output.write(f"sha256={digest}\n")
+          PY
+
+      - name: Validate release archive
+        env:
+          ARCHIVE_PATH: ${{ steps.package.outputs.archive }}
+          CHECKSUM_PATH: ${{ steps.package.outputs.checksum }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import zipfile
+          from pathlib import Path
+
+          archive_path = Path(os.environ["ARCHIVE_PATH"])
+          checksum_path = Path(os.environ["CHECKSUM_PATH"])
+          with zipfile.ZipFile(archive_path) as archive:
+              bad = archive.testzip()
+              if bad:
+                  raise SystemExit(f"Corrupt archive entry: {bad}")
+              names = archive.namelist()
+              if any("__pycache__" in name or name.endswith(".log") for name in names):
+                  raise SystemExit("Archive contains forbidden runtime files")
+              command_files = [info for info in archive.infolist() if info.filename.endswith(".command")]
+              if len(command_files) != 2:
+                  raise SystemExit("Expected two macOS command files")
+              if any(((info.external_attr >> 16) & 0o777) != 0o755 for info in command_files):
+                  raise SystemExit("macOS command file is not executable")
+          if not checksum_path.read_text(encoding="utf-8").strip():
+              raise SystemExit("Checksum file is empty")
+          PY
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.request.outputs.tag }}
+          RELEASE_TITLE: ${{ steps.request.outputs.title }}
+          NOTES_PATH: ${{ steps.request.outputs.notes_path }}
+          ARCHIVE_PATH: ${{ steps.package.outputs.archive }}
+          CHECKSUM_PATH: ${{ steps.package.outputs.checksum }}
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "$ARCHIVE_PATH" "$CHECKSUM_PATH" --clobber
+            gh release edit "$RELEASE_TAG" --title "$RELEASE_TITLE" --notes-file "$NOTES_PATH"
+          else
+            gh release create "$RELEASE_TAG" "$ARCHIVE_PATH" "$CHECKSUM_PATH" \
+              --verify-tag \
+              --title "$RELEASE_TITLE" \
+              --notes-file "$NOTES_PATH"
+          fi
+
+      - name: Write job summary
+        env:
+          RELEASE_TAG: ${{ steps.request.outputs.tag }}
+          SHA256: ${{ steps.package.outputs.sha256 }}
+        run: |
+          echo "Published $RELEASE_TAG" >> "$GITHUB_STEP_SUMMARY"
+          echo "SHA-256: $SHA256" >> "$GITHUB_STEP_SUMMARY"
