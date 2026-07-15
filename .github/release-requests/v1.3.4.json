@@ -3,5 +3,5 @@
   "title": "v1.3.4",
   "asset_name": "exam-simulator-v1.3.4.zip",
   "cleanup_assets": ["-v1.3.4.zip", "-v1.3.4.zip.sha256"],
-  "notes": "## 更新内容\n\n- 新增可在 macOS 双击运行的启动与关闭文件。\n- Windows 与 macOS 启停文件增加平台前缀，避免用户选错入口。\n- macOS 关闭流程复用本地令牌接口，并绕过系统代理；接口异常时仅在确认属于当前项目后终止进程。\n- 使用说明、开发交接说明、页面资源版本和服务响应版本统一更新为 v1.3.4。\n\n## 使用入口\n\n- Windows：`Windows-启动考试模拟器.bat` / `Windows-关闭考试模拟器.bat`\n- macOS：`macOS-启动考试模拟器.command` / `macOS-关闭考试模拟器.command`\n\nmacOS 若提示没有执行权限，请在“终端”进入项目目录后执行：\n\n```bash\nchmod +x macOS-启动考试模拟器.command macOS-关闭考试模拟器.command\n```"
+  "notes": "## 更新内容\n\n- 优化答题卡翻页操作，提供上一题、下一题和当前题号/总题数显示。\n- 支持使用 `←/↑` 切换上一题、`→/↓` 切换下一题，并避免在输入区域误触发。\n- 优化桌面端和移动端响应式布局，标题、题干、提交答案和交卷按钮会按可用宽度缩放。\n- 新增可在 macOS 双击运行的启动与关闭文件。\n- Windows 与 macOS 启停文件增加平台前缀，避免用户选错入口。\n- macOS 关闭流程复用本地令牌接口，并绕过系统代理；接口异常时仅在确认属于当前项目后终止进程。\n- 使用说明、开发交接说明、页面资源版本和服务响应版本统一为 v1.3.4。\n\n## 使用入口\n\n- Windows：`Windows-启动考试模拟器.bat` / `Windows-关闭考试模拟器.bat`\n- macOS：`macOS-启动考试模拟器.command` / `macOS-关闭考试模拟器.command`\n\nmacOS 若提示没有执行权限，请在“终端”进入项目目录后执行：\n\n```bash\nchmod +x macOS-启动考试模拟器.command macOS-关闭考试模拟器.command\n```"
 }
