@@ -60,8 +60,17 @@ jobs:
           if not re.fullmatch(r"[A-Za-z0-9._-]+\.zip", asset_name):
               raise SystemExit(f"Invalid release asset name: {asset_name}")
 
+          cleanup_assets = data.get("cleanup_assets", [])
+          if not isinstance(cleanup_assets, list) or any(
+              not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9._-]+", name)
+              for name in cleanup_assets
+          ):
+              raise SystemExit("Invalid cleanup asset list")
+
           notes_path = Path(os.environ["RUNNER_TEMP"]) / "release-notes.md"
           notes_path.write_text(data["notes"].rstrip() + "\n", encoding="utf-8")
+          cleanup_path = Path(os.environ["RUNNER_TEMP"]) / "cleanup-assets.txt"
+          cleanup_path.write_text("\n".join(cleanup_assets) + "\n", encoding="utf-8")
 
           with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
               output.write(f"tag={tag}\n")
@@ -69,6 +78,7 @@ jobs:
               output.write(f"title={title}\n")
               output.write(f"asset_name={asset_name}\n")
               output.write(f"notes_path={notes_path}\n")
+              output.write(f"cleanup_path={cleanup_path}\n")
           PY
 
       - name: Check out tagged source
@@ -203,10 +213,14 @@ jobs:
           NOTES_PATH: ${{ steps.request.outputs.notes_path }}
           ARCHIVE_PATH: ${{ steps.package.outputs.archive }}
           CHECKSUM_PATH: ${{ steps.package.outputs.checksum }}
+          CLEANUP_PATH: ${{ steps.request.outputs.cleanup_path }}
         run: |
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
-            gh release delete-asset "$RELEASE_TAG" "-${RELEASE_TAG}.zip" --yes >/dev/null 2>&1 || true
-            gh release delete-asset "$RELEASE_TAG" "-${RELEASE_TAG}.zip.sha256" --yes >/dev/null 2>&1 || true
+            while IFS= read -r stale_asset; do
+              if [ -n "$stale_asset" ]; then
+                gh release delete-asset "$RELEASE_TAG" --yes -- "$stale_asset" >/dev/null 2>&1 || true
+              fi
+            done < "$CLEANUP_PATH"
             gh release upload "$RELEASE_TAG" "$ARCHIVE_PATH" "$CHECKSUM_PATH" --clobber
             gh release edit "$RELEASE_TAG" --title "$RELEASE_TITLE" --notes-file "$NOTES_PATH"
           else
