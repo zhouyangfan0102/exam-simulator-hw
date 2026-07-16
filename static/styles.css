@@ -1051,9 +1051,11 @@ input:focus-visible {
   grid-template-columns: minmax(96px, 1fr) auto minmax(96px, 1fr);
   align-items: center;
   gap: 12px;
-  margin-top: auto;
-  padding-top: 18px;
-  border-top: 1px solid var(--line);
+  margin: 0 0 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 10px;
+  background: #f7f5ff;
 }
 
 .question-page-button {
@@ -1062,7 +1064,7 @@ input:focus-visible {
   justify-content: center;
   gap: 8px;
   min-height: clamp(40px, 4.8vw, 44px);
-  border: 1px solid #cfd5ea;
+  border: 1px solid #b8bfe0;
   border-radius: 8px;
   padding: 0 clamp(10px, 2vw, 16px);
   background: #ffffff;
@@ -1085,6 +1087,11 @@ input:focus-visible {
   transform: translateY(-1px);
   border-color: var(--bg-start);
   box-shadow: 0 10px 22px rgba(35, 18, 79, 0.14);
+}
+
+.question-page-button:focus-visible {
+  outline: 3px solid rgba(102, 126, 234, 0.3);
+  outline-offset: 2px;
 }
 
 .question-page-button:disabled {
@@ -1568,7 +1575,8 @@ input:focus-visible {
 
   .question-pagination {
     gap: 6px;
-    padding-top: 14px;
+    margin-bottom: 14px;
+    padding: 8px;
   }
 
   .question-page-button {

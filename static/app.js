@@ -889,10 +889,6 @@ function renderCurrentQuestion() {
       </div>
       <span class="result-badge hidden"></span>
     </div>
-    <p class="question-text">${escapeHtml(prepared.stem)}</p>
-    <input class="answer-value" type="hidden" />
-    ${renderChoiceButtons(prepared)}
-    <div class="answer-review hidden"></div>
     <div class="question-pagination" aria-label="题目翻页">
       <button class="question-page-button" data-action="previous" type="button" title="上一题（← / ↑）" aria-label="上一题" aria-keyshortcuts="ArrowLeft ArrowUp">
         <span aria-hidden="true">‹</span><span>上一题</span>
@@ -902,6 +898,10 @@ function renderCurrentQuestion() {
         <span>下一题</span><span aria-hidden="true">›</span>
       </button>
     </div>
+    <p class="question-text">${escapeHtml(prepared.stem)}</p>
+    <input class="answer-value" type="hidden" />
+    ${renderChoiceButtons(prepared)}
+    <div class="answer-review hidden"></div>
     <div class="question-actions">
       <button class="mark-button" data-action="mark" type="button">标记题目</button>
       <button class="submit-answer-button" data-action="check" type="button">提交答案</button>

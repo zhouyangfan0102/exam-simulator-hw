@@ -383,6 +383,18 @@ def option_match(value: str) -> re.Match[str] | None:
     return re.match(r"^\s*([A-Ha-hＡ-Ｈａ-ｈ])\s*[\.\uFF0E、:：\)）]\s*(.+?)\s*$", normalize_fullwidth(value))
 
 
+def option_line_key(value: str) -> str:
+    text = normalize_fullwidth(value)
+    match = option_match(text)
+    if match:
+        return match.group(1).upper()
+    wrapped = re.match(r"^\s*[（(\[【]\s*([A-Ha-h])\s*[）)\]】]\s*\S", text)
+    if wrapped:
+        return wrapped.group(1).upper()
+    bare = re.match(r"^\s*([A-Ha-h])(?:[\t \u3000]+)(?=\S)", text)
+    return bare.group(1).upper() if bare else ""
+
+
 def option_markers(value: str) -> list[tuple[int, int, str]]:
     text = str(value or "").replace("\r\n", "\n").replace("\r", "\n")
     candidates: list[tuple[int, int, str, int]] = []
@@ -497,6 +509,27 @@ def infer_question_type(explicit_type: str, answer: str, options: list[str]) -> 
     if options:
         return "单选题"
     return "未分类"
+
+
+def is_choice_option_continuation(
+    row_qtype: str,
+    row_answer: str,
+    row_text: str,
+    current_qtype: str,
+    current_answer: str,
+    current_options: list[str],
+) -> bool:
+    if row_answer.strip() or not option_line_key(row_text):
+        return False
+    row_type = detect_question_type(row_qtype)
+    if row_qtype.strip() and not row_type:
+        return False
+    current_type = infer_question_type(
+        detect_question_type(current_qtype),
+        current_answer,
+        current_options,
+    )
+    return current_type in {"单选题", "多选题"} and (not row_type or row_type == current_type)
 
 
 def finalize_question(item: ParsedQuestion | None, output: list[ParsedQuestion]) -> None:
@@ -664,6 +697,7 @@ def parse_table_rows(rows: list[list[str]]) -> list[ParsedQuestion]:
         return []
 
     parsed: list[ParsedQuestion] = []
+    current: ParsedQuestion | None = None
     for row in rows[1:]:
         question_text = row[question_idx].strip() if question_idx < len(row) else ""
         answer = row[answer_idx].strip() if answer_idx < len(row) else ""
@@ -679,8 +713,20 @@ def parse_table_rows(rows: list[list[str]]) -> list[ParsedQuestion]:
             if key and not option_match(option_text):
                 option_text = f"{key}. {option_text}"
             options.append(option_text)
-        item = ParsedQuestion(qtype=detect_question_type(qtype), answer=answer, stem=question_text, options=options)
-        finalize_question(item, parsed)
+        normalized_type = detect_question_type(qtype)
+        if current and not options and is_choice_option_continuation(
+            qtype,
+            answer,
+            question_text,
+            current.qtype,
+            current.answer,
+            current.options,
+        ):
+            current.options.append(question_text)
+            continue
+        finalize_question(current, parsed)
+        current = ParsedQuestion(qtype=normalized_type, answer=answer, stem=question_text, options=options)
+    finalize_question(current, parsed)
     return parsed
 
 
@@ -695,6 +741,17 @@ def parse_standard_rows(rows: list[list[str]]) -> list[ParsedQuestion]:
             continue
         if looks_like_header(qtype, answer, question_text):
             saw_standard_shape = True
+            continue
+        if current and is_choice_option_continuation(
+            qtype,
+            answer,
+            question_text,
+            current.qtype,
+            current.answer,
+            current.options,
+        ):
+            saw_standard_shape = True
+            current.options.append(question_text)
             continue
         if not qtype and not answer and question_text and current:
             saw_standard_shape = True
@@ -858,6 +915,17 @@ def load_question_bank(path: Path | None = None) -> dict[str, Any]:
                         last_question = None
                         continue
                     if not question_text:
+                        continue
+                    current_options = split_question_options(last_question.question)[1] if last_question else []
+                    if last_question and is_choice_option_continuation(
+                        qtype,
+                        answer,
+                        question_text,
+                        last_question.qtype,
+                        last_question.answer,
+                        current_options,
+                    ):
+                        last_question.question = f"{last_question.question}\n{question_text}"
                         continue
                     if not qtype and not answer and last_question:
                         last_question.question = f"{last_question.question}\n{question_text}"
@@ -1164,6 +1232,17 @@ class ExamHandler(SimpleHTTPRequestHandler):
     def log_message(self, format: str, *args: Any) -> None:
         sys.stdout.write("%s - %s\n" % (self.address_string(), format % args))
 
+    def should_disable_client_cache(self) -> bool:
+        path = unquote(urlparse(self.path).path)
+        return path == "/" or path.endswith((".html", ".css", ".js"))
+
+    def end_headers(self) -> None:
+        if self.should_disable_client_cache():
+            self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
+            self.send_header("Pragma", "no-cache")
+            self.send_header("Expires", "0")
+        super().end_headers()
+
     def send_json(self, payload: dict[str, Any], status: int = 200) -> None:
         raw = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(status)
@@ -1194,6 +1273,10 @@ class ExamHandler(SimpleHTTPRequestHandler):
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         path = unquote(parsed.path)
+        if self.should_disable_client_cache():
+            for header in ("If-Modified-Since", "If-None-Match"):
+                if header in self.headers:
+                    del self.headers[header]
         if path == "/":
             self.path = "/templates/index.html"
             return super().do_GET()
