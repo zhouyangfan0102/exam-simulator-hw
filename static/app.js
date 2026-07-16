@@ -889,23 +889,29 @@ function renderCurrentQuestion() {
       </div>
       <span class="result-badge hidden"></span>
     </div>
-    <div class="question-pagination" aria-label="题目翻页">
-      <button class="question-page-button" data-action="previous" type="button" title="上一题（← / ↑）" aria-label="上一题" aria-keyshortcuts="ArrowLeft ArrowUp">
-        <span aria-hidden="true">‹</span><span>上一题</span>
-      </button>
-      <span class="question-position" aria-live="polite" aria-atomic="true">${state.currentIndex + 1} / ${state.questions.length}</span>
-      <button class="question-page-button" data-action="next" type="button" title="下一题（→ / ↓）" aria-label="下一题" aria-keyshortcuts="ArrowRight ArrowDown">
-        <span>下一题</span><span aria-hidden="true">›</span>
-      </button>
-    </div>
     <p class="question-text">${escapeHtml(prepared.stem)}</p>
     <input class="answer-value" type="hidden" />
     ${renderChoiceButtons(prepared)}
     <div class="answer-review hidden"></div>
-    <div class="question-actions">
-      <button class="mark-button" data-action="mark" type="button">标记题目</button>
-      <button class="submit-answer-button" data-action="check" type="button">提交答案</button>
-      <button class="finish-button" data-action="finish" type="button">交卷</button>
+    <div class="question-controls">
+      <div class="question-pagination" aria-label="题目翻页">
+        <button class="question-page-button" data-action="previous" type="button" title="上一题（← / ↑）" aria-label="上一题" aria-keyshortcuts="ArrowLeft ArrowUp">
+          <span aria-hidden="true">‹</span><span class="page-button-label">上一题</span>
+        </button>
+        <span class="question-position" aria-live="polite" aria-atomic="true">${state.currentIndex + 1} / ${state.questions.length}</span>
+        <button class="question-page-button" data-action="next" type="button" title="下一题（→ / ↓）" aria-label="下一题" aria-keyshortcuts="ArrowRight ArrowDown">
+          <span class="page-button-label">下一题</span><span aria-hidden="true">›</span>
+        </button>
+      </div>
+      <div class="question-actions">
+        <button class="mark-button" data-action="mark" type="button" aria-label="标记题目">
+          <span class="action-label-full">标记题目</span><span class="action-label-short" aria-hidden="true">标记</span>
+        </button>
+        <button class="submit-answer-button" data-action="check" type="button" aria-label="提交答案">
+          <span class="action-label-full">提交答案</span><span class="action-label-short" aria-hidden="true">提交</span>
+        </button>
+        <button class="finish-button" data-action="finish" type="button">交卷</button>
+      </div>
     </div>
   `;
   els.questionForm.appendChild(card);
@@ -921,7 +927,9 @@ function renderCurrentQuestion() {
 
   const marked = state.marked.has(question.id);
   const markButton = card.querySelector('[data-action="mark"]');
-  markButton.textContent = marked ? "取消标记" : "标记题目";
+  markButton.querySelector(".action-label-full").textContent = marked ? "取消标记" : "标记题目";
+  markButton.querySelector(".action-label-short").textContent = marked ? "取消" : "标记";
+  markButton.setAttribute("aria-label", marked ? "取消标记" : "标记题目");
   markButton.classList.toggle("active", marked);
   card.querySelector('[data-action="previous"]').disabled = state.currentIndex === 0;
   card.querySelector('[data-action="next"]').disabled = state.currentIndex === state.questions.length - 1;
@@ -1148,8 +1156,11 @@ function toggleMark(card = currentCard()) {
     state.marked.add(questionId);
   }
   const markButton = card.querySelector('[data-action="mark"]');
-  markButton.textContent = state.marked.has(questionId) ? "取消标记" : "标记题目";
-  markButton.classList.toggle("active", state.marked.has(questionId));
+  const marked = state.marked.has(questionId);
+  markButton.querySelector(".action-label-full").textContent = marked ? "取消标记" : "标记题目";
+  markButton.querySelector(".action-label-short").textContent = marked ? "取消" : "标记";
+  markButton.setAttribute("aria-label", marked ? "取消标记" : "标记题目");
+  markButton.classList.toggle("active", marked);
   updateQuestionNav();
 }
 
